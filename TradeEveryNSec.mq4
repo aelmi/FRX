@@ -1,6 +1,6 @@
 #property copyright "Al Elmi"
 #property link      "http://www.yourwebsite.com"
-#property version   "1.10"
+#property version   "1.12"
 #property strict
 
 // Input parameters
@@ -75,13 +75,17 @@ void OnTick()
             {
                 int tradeDirection = DetermineTradeDirection(currentSymbol);
                 
-                // Open trades in the determined direction with appropriate lot size
-                if(tradeDirection != -1)
+                // Check if there are no open trades in the opposite direction for this symbol
+                if(CountOpenTradesInOppositeDirection(currentSymbol, tradeDirection) == 0)
                 {
-                    double lotSize = GetLotSize(i);
-                    if(OpenTrade(currentSymbol, lotSize, tradeDirection))
+                    // Open trades in the determined direction with appropriate lot size
+                    if(tradeDirection != -1)
                     {
-                        totalOpenTrades++;
+                        double lotSize = GetLotSize(i);
+                        if(OpenTrade(currentSymbol, lotSize, tradeDirection))
+                        {
+                            totalOpenTrades++;
+                        }
                     }
                 }
             }
@@ -179,6 +183,22 @@ int CountTotalOpenTrades()
         if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
         {
             count++;
+        }
+    }
+    return count;
+}
+
+int CountOpenTradesInOppositeDirection(string symbol, int tradeDirection)
+{
+    int count = 0;
+    for(int i = 0; i < OrdersTotal(); i++)
+    {
+        if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+        {
+            if(OrderSymbol() == symbol && OrderType() != tradeDirection)
+            {
+                count++;
+            }
         }
     }
     return count;
