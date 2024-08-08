@@ -1,6 +1,6 @@
 #property copyright "Al Elmi"
 #property link      "http://www.yourwebsite.com"
-#property version   "1.12"
+#property version   "1.13"
 #property strict
 
 // Input parameters
@@ -11,7 +11,7 @@ extern double TakeProfit = 3.0;     // Take profit in dollars
 extern int TradeInterval = 4;       // Time between trades in seconds
 extern int ShortMAPeriod = 10;      // Period for the Short Simple Moving Average
 extern int LongMAPeriod = 20;       // Period for the Long Simple Moving Average
-extern double MinAccountValueToCloseTrades = 1000.0; // Minimum account value to close profitable trades
+extern double MinProfitToCloseTrades = 1000.0; // Minimum profit to close trades when account value is negative
 
 datetime lastTradeTime = 0;
 string symbolArray[];
@@ -143,7 +143,7 @@ void CheckAndCloseProfitableTrades(string symbol)
             if(OrderSymbol() == symbol)
             {
                 double profit = OrderProfit();
-                if(profit >= TakeProfit && (accountEquity >= MinAccountValueToCloseTrades || accountEquity >= 0.0))
+                if(profit >= TakeProfit && (accountEquity >= 0.0 || profit >= MinProfitToCloseTrades))
                 {
                     if(!OrderClose(OrderTicket(), OrderLots(), (OrderType() == OP_BUY) ? MarketInfo(symbol, MODE_BID) : MarketInfo(symbol, MODE_ASK), 3, clrYellow))
                     {
