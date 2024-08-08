@@ -1,15 +1,17 @@
 #property copyright "Al Elmi"
 #property link      "http://www.yourwebsite.com"
-#property version   "1.08"
+#property version   "1.10"
 #property strict
 
 // Input parameters
 extern string TradeSymbolsAndLots = "US30=0.5,NDAQ100=1,GOLD=1,USOIL=0.4";
-extern int MaxTradesPerSymbol = 9;  // Maximum number of open trades per symbol
+extern int MaxTradesTotal = 25;     // Maximum number of open trades across all symbols
+extern int MaxTradesPerSymbol = 7;  // Maximum number of open trades per symbol
 extern double TakeProfit = 3.0;     // Take profit in dollars
-extern int TradeInterval = 4;      // Time between trades in seconds (reduced to 1 minute)
+extern int TradeInterval = 4;       // Time between trades in seconds
 extern int ShortMAPeriod = 10;      // Period for the Short Simple Moving Average
 extern int LongMAPeriod = 20;       // Period for the Long Simple Moving Average
+extern double MinAccountValueToCloseTrades = 1000.0; // Minimum account value to close profitable trades
 
 datetime lastTradeTime = 0;
 string symbolArray[];
@@ -60,13 +62,16 @@ void OnTick()
     // Check if TradeInterval seconds have passed since the last trade
     if(TimeCurrent() - lastTradeTime >= TradeInterval)
     {
+        int totalOpenTrades = CountTotalOpenTrades();
+        
         // Trade on each symbol
         for(int i = 0; i < symbolCount; i++)
         {
             string currentSymbol = symbolArray[i];
             
             // Check if the number of open trades for this symbol is less than MaxTradesPerSymbol
-            if(CountOpenTrades(currentSymbol) < MaxTradesPerSymbol)
+            // and if the total number of open trades is less than MaxTradesTotal
+            if(CountOpenTrades(currentSymbol) < MaxTradesPerSymbol && totalOpenTrades < MaxTradesTotal)
             {
                 int tradeDirection = DetermineTradeDirection(currentSymbol);
                 
@@ -74,7 +79,10 @@ void OnTick()
                 if(tradeDirection != -1)
                 {
                     double lotSize = GetLotSize(i);
-                    OpenTrade(currentSymbol, lotSize, tradeDirection);
+                    if(OpenTrade(currentSymbol, lotSize, tradeDirection))
+                    {
+                        totalOpenTrades++;
+                    }
                 }
             }
         }
@@ -103,7 +111,7 @@ int DetermineTradeDirection(string symbol)
         return -1; // No clear direction
 }
 
-void OpenTrade(string symbol, double lots, int tradeType)
+bool OpenTrade(string symbol, double lots, int tradeType)
 {
     double price = (tradeType == OP_BUY) ? MarketInfo(symbol, MODE_ASK) : MarketInfo(symbol, MODE_BID);
     int ticket = OrderSend(symbol, tradeType, lots, price, 3, 0, 0, "Trade", 0, 0, (tradeType == OP_BUY) ? clrGreen : clrRed);
@@ -111,15 +119,19 @@ void OpenTrade(string symbol, double lots, int tradeType)
     if(ticket > 0)
     {
         Print("Trade opened successfully on ", symbol, ". Ticket: ", ticket);
+        return true;
     }
     else
     {
         Print("Error opening trade on ", symbol, ". Error code: ", GetLastError());
+        return false;
     }
 }
 
 void CheckAndCloseProfitableTrades(string symbol)
 {
+    double accountEquity = AccountEquity();
+    
     for(int i = OrdersTotal() - 1; i >= 0; i--)
     {
         if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -127,7 +139,7 @@ void CheckAndCloseProfitableTrades(string symbol)
             if(OrderSymbol() == symbol)
             {
                 double profit = OrderProfit();
-                if(profit >= TakeProfit)
+                if(profit >= TakeProfit && (accountEquity >= MinAccountValueToCloseTrades || accountEquity >= 0.0))
                 {
                     if(!OrderClose(OrderTicket(), OrderLots(), (OrderType() == OP_BUY) ? MarketInfo(symbol, MODE_BID) : MarketInfo(symbol, MODE_ASK), 3, clrYellow))
                     {
@@ -154,6 +166,19 @@ int CountOpenTrades(string symbol)
             {
                 count++;
             }
+        }
+    }
+    return count;
+}
+
+int CountTotalOpenTrades()
+{
+    int count = 0;
+    for(int i = 0; i < OrdersTotal(); i++)
+    {
+        if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+        {
+            count++;
         }
     }
     return count;
