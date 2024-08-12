@@ -1,12 +1,12 @@
 #property copyright "Al Elmi"
 #property link      "http://www.yourwebsite.com"
-#property version   "1.13"
+#property version   "1.14"
 #property strict
 
 // Input parameters
 extern string TradeSymbolsAndLots = "US30=0.5,NDAQ100=1,GOLD=1,USOIL=0.4";
-extern int MaxTradesTotal = 25;     // Maximum number of open trades across all symbols
-extern int MaxTradesPerSymbol = 7;  // Maximum number of open trades per symbol
+extern int MaxTradesTotal = 30;     // Maximum number of open trades across all symbols
+extern int MaxTradesPerSymbol = 8;  // Maximum number of open trades per symbol
 extern double TakeProfit = 3.0;     // Take profit in dollars
 extern int TradeInterval = 4;       // Time between trades in seconds
 extern int ShortMAPeriod = 10;      // Period for the Short Simple Moving Average
@@ -79,9 +79,9 @@ void OnTick()
                 if(CountOpenTradesInOppositeDirection(currentSymbol, tradeDirection) == 0)
                 {
                     // Open trades in the determined direction with appropriate lot size
-                    if(tradeDirection != -1)
+                    if(tradeDirection != -1 && IsTradingSession(currentSymbol))
                     {
-                        double lotSize = GetLotSize(i);
+                        double lotSize = GetDynamicLotSize(currentSymbol);
                         if(OpenTrade(currentSymbol, lotSize, tradeDirection))
                         {
                             totalOpenTrades++;
@@ -95,21 +95,24 @@ void OnTick()
     }
 }
 
-double GetLotSize(int symbolIndex)
+double GetDynamicLotSize(string symbol)
 {
-    if(symbolIndex >= 0 && symbolIndex < symbolCount)
-        return lotSizes[symbolIndex];
-    return 0.01; // Default small lot size
+    double accountEquity = AccountEquity();
+    double riskPercentage = 0.01; // 1% of equity per trade
+    double stopLossInPips = 50; // Hypothetical stop loss level
+    double lotSize = (accountEquity * riskPercentage) / (stopLossInPips * MarketInfo(symbol, MODE_TICKVALUE));
+    return NormalizeDouble(lotSize, 2);
 }
 
 int DetermineTradeDirection(string symbol)
 {
     double shortMA = iMA(symbol, 0, ShortMAPeriod, 0, MODE_SMA, PRICE_CLOSE, 0);
     double longMA = iMA(symbol, 0, LongMAPeriod, 0, MODE_SMA, PRICE_CLOSE, 0);
-    
-    if(shortMA > longMA)
+    double rsi = iRSI(symbol, 0, 14, PRICE_CLOSE, 0); // 14-period RSI
+
+    if(shortMA > longMA && rsi < 70)
         return OP_BUY;
-    else if(shortMA < longMA)
+    else if(shortMA < longMA && rsi > 30)
         return OP_SELL;
     else
         return -1; // No clear direction
@@ -143,9 +146,17 @@ void CheckAndCloseProfitableTrades(string symbol)
             if(OrderSymbol() == symbol)
             {
                 double profit = OrderProfit();
+                double trailProfit = OrderOpenPrice() + TakeProfit * Point * OrderType();
+                double newPrice = (OrderType() == OP_BUY) ? MarketInfo(symbol, MODE_BID) : MarketInfo(symbol, MODE_ASK);
+
+                if(newPrice > trailProfit)
+                {
+                    trailProfit = newPrice - (TakeProfit * Point);
+                }
+                
                 if(profit >= TakeProfit && (accountEquity >= 0.0 || profit >= MinProfitToCloseTrades))
                 {
-                    if(!OrderClose(OrderTicket(), OrderLots(), (OrderType() == OP_BUY) ? MarketInfo(symbol, MODE_BID) : MarketInfo(symbol, MODE_ASK), 3, clrYellow))
+                    if(!OrderClose(OrderTicket(), OrderLots(), newPrice, 3, clrYellow))
                     {
                         Print("Error closing trade on ", symbol, ". Error code: ", GetLastError());
                     }
@@ -202,4 +213,16 @@ int CountOpenTradesInOppositeDirection(string symbol, int tradeDirection)
         }
     }
     return count;
+}
+
+bool IsTradingSession(string symbol)
+{
+    // Example: Only trade during London and New York sessions
+    datetime currentTime = TimeCurrent();
+    int hour = TimeHour(currentTime);
+
+    if((hour >= 8 && hour <= 17) || (hour >= 13 && hour <= 21))
+        return true;
+
+    return false;
 }
