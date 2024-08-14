@@ -1,13 +1,14 @@
 #property copyright "Al Elmi"
 #property link      "http://www.yourwebsite.com"
-#property version   "1.14"
+#property version   "1.15"
 #property strict
 
 // Input parameters
 extern string TradeSymbolsAndLots = "US30=0.5,NDAQ100=1,GOLD=1,USOIL=0.4";
 extern int MaxTradesTotal = 30;     // Maximum number of open trades across all symbols
 extern int MaxTradesPerSymbol = 8;  // Maximum number of open trades per symbol
-extern double TakeProfit = 3.0;     // Take profit in dollars
+extern double TakeProfit = 4.0;     // Take profit in dollars (default value set to 4)
+extern double TrailStop = 2.0;      // Trailing stop in dollars
 extern int TradeInterval = 4;       // Time between trades in seconds
 extern int ShortMAPeriod = 10;      // Period for the Short Simple Moving Average
 extern int LongMAPeriod = 20;       // Period for the Long Simple Moving Average
@@ -146,23 +147,44 @@ void CheckAndCloseProfitableTrades(string symbol)
             if(OrderSymbol() == symbol)
             {
                 double profit = OrderProfit();
-                double trailProfit = OrderOpenPrice() + TakeProfit * Point * OrderType();
-                double newPrice = (OrderType() == OP_BUY) ? MarketInfo(symbol, MODE_BID) : MarketInfo(symbol, MODE_ASK);
-
-                if(newPrice > trailProfit)
+                double openPrice = OrderOpenPrice();
+                double currentPrice = (OrderType() == OP_BUY) ? MarketInfo(symbol, MODE_BID) : MarketInfo(symbol, MODE_ASK);
+                double pointSize = MarketInfo(symbol, MODE_POINT);
+                
+                // Calculate the initial take profit level
+                double takeProfitLevel = (OrderType() == OP_BUY) ? openPrice + TakeProfit * pointSize : openPrice - TakeProfit * pointSize;
+                
+                // Calculate the trailing stop level
+                double trailStopLevel;
+                if(OrderType() == OP_BUY)
                 {
-                    trailProfit = newPrice - (TakeProfit * Point);
+                    trailStopLevel = MathMax(openPrice, currentPrice - TrailStop * pointSize);
+                }
+                else
+                {
+                    trailStopLevel = MathMin(openPrice, currentPrice + TrailStop * pointSize);
                 }
                 
-                if(profit >= TakeProfit && (accountEquity >= 0.0 || profit >= MinProfitToCloseTrades))
+                // Determine if we should close the trade
+                bool shouldClose = false;
+                if(OrderType() == OP_BUY)
                 {
-                    if(!OrderClose(OrderTicket(), OrderLots(), newPrice, 3, clrYellow))
+                    shouldClose = (currentPrice >= takeProfitLevel) || (currentPrice <= trailStopLevel);
+                }
+                else
+                {
+                    shouldClose = (currentPrice <= takeProfitLevel) || (currentPrice >= trailStopLevel);
+                }
+                
+                if(shouldClose && (accountEquity >= 0.0 || profit >= MinProfitToCloseTrades))
+                {
+                    if(!OrderClose(OrderTicket(), OrderLots(), currentPrice, 3, clrYellow))
                     {
                         Print("Error closing trade on ", symbol, ". Error code: ", GetLastError());
                     }
                     else
                     {
-                        Print("Trade closed with profit on ", symbol, ": ", profit);
+                        Print("Trade closed on ", symbol, ": Profit = ", profit, ", Reason: ", (currentPrice == takeProfitLevel) ? "Take Profit" : "Trailing Stop");
                     }
                 }
             }
